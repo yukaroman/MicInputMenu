@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@v7.0.1
 
       - name: Resolve release version
-        shell: zsh
+        shell: /bin/zsh {0}
         run: |
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             release_version="${GITHUB_REF_NAME#v}"
@@ -38,7 +38,7 @@ jobs:
           print "RELEASE_VERSION=${release_version}" >> "${GITHUB_ENV}"
 
       - name: Configure optional Developer ID signing
-        shell: zsh
+        shell: /bin/zsh {0}
         env:
           CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -122,7 +122,7 @@ jobs:
           file dist/MicInputMenu.app/Contents/MacOS/MicInputMenu
 
       - name: Prepare release assets
-        shell: zsh
+        shell: /bin/zsh {0}
         run: |
           suffix=""
           if [[ "${SIGNING_MODE}" == "ad-hoc" ]]; then
@@ -145,7 +145,7 @@ jobs:
 
       - name: Publish GitHub Release
         if: github.ref_type == 'tag'
-        shell: zsh
+        shell: /bin/zsh {0}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
