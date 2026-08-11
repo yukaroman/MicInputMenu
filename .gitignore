@@ -1,0 +1,17 @@
+.DS_Store
+.build/
+.swiftpm/
+dist/
+outputs/
+DerivedData/
+*.app
+*.dSYM
+*.xcarchive
+*.zip
+*.p12
+*.p8
+*.mobileprovision
+.env
+.env.*
+xcuserdata/
+*.xcuserstate

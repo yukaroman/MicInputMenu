@@ -1,0 +1,173 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Resolve release version
+        shell: zsh
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            release_version="${GITHUB_REF_NAME#v}"
+          else
+            release_version="$(plutil -extract CFBundleShortVersionString raw Resources/Info.plist)"
+          fi
+
+          if [[ ! "${release_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            print -u2 "Release version must use semantic versioning: ${release_version}"
+            exit 1
+          fi
+
+          /usr/libexec/PlistBuddy \
+            -c "Set :CFBundleShortVersionString ${release_version}" \
+            Resources/Info.plist
+          print "RELEASE_VERSION=${release_version}" >> "${GITHUB_ENV}"
+
+      - name: Configure optional Developer ID signing
+        shell: zsh
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          print "MIC_INPUT_SIGNING_IDENTITY=-" >> "${GITHUB_ENV}"
+          print "MIC_INPUT_NOTARY_PROFILE=" >> "${GITHUB_ENV}"
+          print "MIC_INPUT_NOTARY_KEYCHAIN=" >> "${GITHUB_ENV}"
+          print "SIGNING_MODE=ad-hoc" >> "${GITHUB_ENV}"
+
+          if [[ -z "${CERTIFICATE_BASE64}" ]]; then
+            print "No Developer ID certificate configured; publishing an unsigned asset."
+            exit 0
+          fi
+
+          if [[ -z "${CERTIFICATE_PASSWORD}" || -z "${SIGNING_IDENTITY}" ]]; then
+            print -u2 "Developer ID certificate secrets are incomplete."
+            exit 1
+          fi
+
+          keychain_path="${RUNNER_TEMP}/app-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+          certificate_path="${RUNNER_TEMP}/developer-id.p12"
+
+          print -rn -- "${CERTIFICATE_BASE64}" | /usr/bin/base64 -D > "${certificate_path}"
+          security create-keychain -p "${keychain_password}" "${keychain_path}"
+          security set-keychain-settings -lut 21600 "${keychain_path}"
+          security unlock-keychain -p "${keychain_password}" "${keychain_path}"
+          security import "${certificate_path}" \
+            -k "${keychain_path}" \
+            -P "${CERTIFICATE_PASSWORD}" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "${keychain_password}" \
+            "${keychain_path}"
+          security list-keychains -d user -s "${keychain_path}"
+
+          print "MIC_INPUT_SIGNING_IDENTITY=${SIGNING_IDENTITY}" >> "${GITHUB_ENV}"
+          print "SIGNING_MODE=developer-id" >> "${GITHUB_ENV}"
+
+          notary_values=("${API_KEY_BASE64}" "${API_KEY_ID}" "${API_ISSUER_ID}")
+          configured_notary_values=0
+          for value in "${notary_values[@]}"; do
+            [[ -n "${value}" ]] && (( configured_notary_values += 1 ))
+          done
+
+          if (( configured_notary_values == 0 )); then
+            exit 0
+          fi
+          if (( configured_notary_values != 3 )); then
+            print -u2 "Apple notarization secrets are incomplete."
+            exit 1
+          fi
+
+          api_key_path="${RUNNER_TEMP}/AuthKey_${API_KEY_ID}.p8"
+          notary_profile="github-actions-notary"
+          print -rn -- "${API_KEY_BASE64}" | /usr/bin/base64 -D > "${api_key_path}"
+          xcrun notarytool store-credentials "${notary_profile}" \
+            --key "${api_key_path}" \
+            --key-id "${API_KEY_ID}" \
+            --issuer "${API_ISSUER_ID}" \
+            --keychain "${keychain_path}"
+
+          print "MIC_INPUT_NOTARY_PROFILE=${notary_profile}" >> "${GITHUB_ENV}"
+          print "MIC_INPUT_NOTARY_KEYCHAIN=${keychain_path}" >> "${GITHUB_ENV}"
+          print "SIGNING_MODE=notarized" >> "${GITHUB_ENV}"
+
+      - name: Build universal release app
+        run: Scripts/package_app.sh dist
+
+      - name: Verify release app
+        run: |
+          codesign --verify --deep --strict --verbose=2 dist/MicInputMenu.app
+          dist/MicInputMenu.app/Contents/MacOS/MicInputMenu --self-test
+          file dist/MicInputMenu.app/Contents/MacOS/MicInputMenu
+
+      - name: Prepare release assets
+        shell: zsh
+        run: |
+          suffix=""
+          if [[ "${SIGNING_MODE}" == "ad-hoc" ]]; then
+            suffix="-unsigned"
+          fi
+          release_asset="MicInputMenu-${RELEASE_VERSION}${suffix}.zip"
+          mv dist/MicInputMenu.zip "dist/${release_asset}"
+          shasum -a 256 "dist/${release_asset}" > "dist/${release_asset}.sha256"
+          print "RELEASE_ASSET=${release_asset}" >> "${GITHUB_ENV}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MicInputMenu-release
+          path: |
+            dist/MicInputMenu-*.zip
+            dist/MicInputMenu-*.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        shell: zsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes_path="${RUNNER_TEMP}/release-notes.md"
+          if [[ "${SIGNING_MODE}" == "ad-hoc" ]]; then
+            print "Universal Apple Silicon and Intel build created by GitHub Actions.\n\n> [!WARNING]\n> This asset is ad-hoc signed because Apple Developer credentials are not configured. Control-click the app and choose **Open** on first launch." > "${notes_path}"
+          elif [[ "${SIGNING_MODE}" == "notarized" ]]; then
+            print "Universal Apple Silicon and Intel build, signed with Developer ID and notarized by Apple." > "${notes_path}"
+          else
+            print "Universal Apple Silicon and Intel build, signed with Developer ID. Apple notarization is not configured." > "${notes_path}"
+          fi
+
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" \
+              "dist/${RELEASE_ASSET}" \
+              "dist/${RELEASE_ASSET}.sha256" \
+              --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              "dist/${RELEASE_ASSET}" \
+              "dist/${RELEASE_ASSET}.sha256" \
+              --verify-tag \
+              --title "Mic Input Menu ${GITHUB_REF_NAME}" \
+              --notes-file "${notes_path}"
+          fi

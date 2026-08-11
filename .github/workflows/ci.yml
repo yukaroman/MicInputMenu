@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Build release binary
+        run: swift build -c release
+
+      - name: Run self-tests
+        run: swift run -c release --skip-build MicInputMenu --self-test
+
+      - name: Package native app artifact
+        env:
+          MIC_INPUT_NATIVE_ONLY: "1"
+        run: Scripts/package_app.sh dist
+
+      - name: Verify packaged app
+        run: |
+          codesign --verify --deep --strict --verbose=2 dist/MicInputMenu.app
+          dist/MicInputMenu.app/Contents/MacOS/MicInputMenu --self-test
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MicInputMenu-${{ github.sha }}
+          path: dist/MicInputMenu.zip
+          if-no-files-found: error
+          retention-days: 14
