@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: Resolve release version
         shell: zsh
@@ -134,7 +134,7 @@ jobs:
           print "RELEASE_ASSET=${release_asset}" >> "${GITHUB_ENV}"
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: MicInputMenu-release
           path: |
