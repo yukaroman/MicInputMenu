@@ -130,7 +130,10 @@ jobs:
           fi
           release_asset="MicInputMenu-${RELEASE_VERSION}${suffix}.zip"
           mv dist/MicInputMenu.zip "dist/${release_asset}"
-          shasum -a 256 "dist/${release_asset}" > "dist/${release_asset}.sha256"
+          (
+            cd dist
+            shasum -a 256 "${release_asset}" > "${release_asset}.sha256"
+          )
           print "RELEASE_ASSET=${release_asset}" >> "${GITHUB_ENV}"
 
       - name: Upload workflow artifact
