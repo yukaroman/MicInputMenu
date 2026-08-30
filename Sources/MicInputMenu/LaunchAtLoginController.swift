@@ -22,9 +22,14 @@ enum LaunchAtLoginError: LocalizedError {
 final class LaunchAtLoginController {
     private let fileManager = FileManager.default
     private let fallbackLabel = "io.github.yukaroman.MicInputMenu.login"
+    private let legacyFallbackLabel = "local.codex.MicInputMenu.login"
+
+    init() {
+        try? migrateLegacyFallbackIfNeeded()
+    }
 
     var state: LaunchAtLoginState {
-        if fallbackItemExists {
+        if fallbackItemExists || legacyFallbackItemExists {
             return .enabled
         }
 
@@ -43,7 +48,7 @@ final class LaunchAtLoginController {
     }
 
     func toggle() throws {
-        if fallbackItemExists {
+        if fallbackItemExists || legacyFallbackItemExists {
             try disableFallback()
             return
         }
@@ -71,8 +76,16 @@ final class LaunchAtLoginController {
         launchAgentsDirectory.appendingPathComponent("\(fallbackLabel).plist")
     }
 
+    private var legacyFallbackPlistURL: URL {
+        launchAgentsDirectory.appendingPathComponent("\(legacyFallbackLabel).plist")
+    }
+
     private var fallbackItemExists: Bool {
         fileManager.fileExists(atPath: fallbackPlistURL.path)
+    }
+
+    private var legacyFallbackItemExists: Bool {
+        fileManager.fileExists(atPath: legacyFallbackPlistURL.path)
     }
 
     private var canUseFallback: Bool {
@@ -131,15 +144,46 @@ final class LaunchAtLoginController {
     }
 
     private func disableFallback() throws {
-        if fallbackItemIsLoaded {
+        var firstError: Error?
+        for item in [
+            (fallbackLabel, fallbackPlistURL),
+            (legacyFallbackLabel, legacyFallbackPlistURL)
+        ] {
+            do {
+                try disableFallbackItem(label: item.0, plistURL: item.1)
+            } catch {
+                if firstError == nil {
+                    firstError = error
+                }
+            }
+        }
+        if let firstError {
+            throw firstError
+        }
+    }
+
+    private func migrateLegacyFallbackIfNeeded() throws {
+        guard legacyFallbackItemExists, !fallbackItemExists, canUseFallback else {
+            return
+        }
+
+        try enableFallback()
+        try disableFallbackItem(
+            label: legacyFallbackLabel,
+            plistURL: legacyFallbackPlistURL
+        )
+    }
+
+    private func disableFallbackItem(label: String, plistURL: URL) throws {
+        if fallbackItemIsLoaded(label: label) {
             try runLaunchctl([
                 "bootout",
                 launchDomain,
-                fallbackPlistURL.path
+                plistURL.path
             ])
         }
-        if fallbackItemExists {
-            try fileManager.removeItem(at: fallbackPlistURL)
+        if fileManager.fileExists(atPath: plistURL.path) {
+            try fileManager.removeItem(at: plistURL)
         }
     }
 
@@ -148,9 +192,13 @@ final class LaunchAtLoginController {
     }
 
     private var fallbackItemIsLoaded: Bool {
+        fallbackItemIsLoaded(label: fallbackLabel)
+    }
+
+    private func fallbackItemIsLoaded(label: String) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        process.arguments = ["print", "\(launchDomain)/\(fallbackLabel)"]
+        process.arguments = ["print", "\(launchDomain)/\(label)"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
 

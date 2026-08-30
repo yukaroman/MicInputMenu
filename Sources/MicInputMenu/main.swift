@@ -55,9 +55,13 @@ private func runDiagnostics() -> Int32 {
             let controls = service.inputControlState(deviceID: device.id)
             let volume = controls.volume.map { "\(Int(($0 * 100).rounded()))%" } ?? "n/a"
             let mute = controls.isMuted.map { $0 ? "on" : "off" } ?? "n/a"
+            let bluetoothSubtype = device.bluetoothKind.map {
+                ", bluetooth=\($0.rawValue)"
+            } ?? ""
             print(
                 "\(marker) \(device.name) "
-                    + "[kind=\(device.kind.rawValue), volume=\(volume), mute=\(mute), uid=\(device.uid)]"
+                    + "[kind=\(device.kind.rawValue)\(bluetoothSubtype), "
+                    + "volume=\(volume), mute=\(mute), uid=\(device.uid)]"
             )
         }
         return 0

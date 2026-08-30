@@ -1,5 +1,6 @@
 import CoreAudio
 import Foundation
+import IOBluetooth
 
 enum SelfTestError: LocalizedError {
     case failed(String)
@@ -19,6 +20,8 @@ enum SelfTests {
         try testPreferencePersistence()
         try testStatusNameLength()
         try testTransportClassification()
+        try testBluetoothSubtypeClassification()
+        try testBluetoothAddressMatching()
         try testStatusSymbols()
     }
 
@@ -120,20 +123,96 @@ enum SelfTests {
             AudioInputDeviceKind.bluetooth.statusSymbolName(isMuted: true) == "mic.slash.fill",
             "Muted status symbol is incorrect"
         )
+        let speaker = makeDevice(
+            id: 2,
+            uid: "speaker",
+            name: "Speaker",
+            kind: .bluetooth,
+            bluetoothKind: .speaker
+        )
+        try expect(
+            speaker.symbolName == "hifispeaker.fill",
+            "Bluetooth speaker status symbol is incorrect"
+        )
+        try expect(
+            speaker.statusSymbolName(isMuted: true) == "mic.slash.fill",
+            "Muted Bluetooth status symbol is incorrect"
+        )
+    }
+
+    private static func testBluetoothSubtypeClassification() throws {
+        let audioMajor = UInt32(kBluetoothDeviceClassMajorAudio)
+        try expect(
+            BluetoothAudioDeviceKind.classify(
+                name: "WILLEN",
+                majorClass: audioMajor,
+                minorClass: UInt32(kBluetoothDeviceClassMinorAudioLoudspeaker)
+            ) == .speaker,
+            "Bluetooth loudspeaker classification failed"
+        )
+        try expect(
+            BluetoothAudioDeviceKind.classify(
+                name: "Studio Headphones",
+                majorClass: audioMajor,
+                minorClass: UInt32(kBluetoothDeviceClassMinorAudioHeadphones)
+            ) == .headphones,
+            "Bluetooth headphones classification failed"
+        )
+        try expect(
+            BluetoothAudioDeviceKind.classify(
+                name: "AirPods Pro",
+                majorClass: audioMajor,
+                minorClass: UInt32(kBluetoothDeviceClassMinorAudioHeadphones)
+            ) == .airPods,
+            "AirPods classification failed"
+        )
+        try expect(
+            BluetoothAudioDeviceKind.classify(
+                name: "Conference Mic",
+                majorClass: audioMajor,
+                minorClass: UInt32(kBluetoothDeviceClassMinorAudioMicrophone)
+            ) == .microphone,
+            "Bluetooth microphone classification failed"
+        )
+        try expect(
+            BluetoothAudioDeviceKind.classify(
+                name: "Unknown Device",
+                majorClass: UInt32(kBluetoothDeviceClassMajorUnclassified),
+                minorClass: 0
+            ) == .other,
+            "Unknown Bluetooth classification failed"
+        )
+    }
+
+    private static func testBluetoothAddressMatching() throws {
+        try expect(
+            BluetoothAudioDeviceResolver.addressKey(
+                from: "68-59-32-EB-8D-D4:input"
+            ) == "685932eb8dd4",
+            "Hyphenated Bluetooth address matching failed"
+        )
+        try expect(
+            BluetoothAudioDeviceResolver.addressKey(
+                from: "68:59:32:EB:8D:D4"
+            ) == "685932eb8dd4",
+            "Colon-separated Bluetooth address matching failed"
+        )
     }
 
     private static func makeDevice(
         id: AudioDeviceID,
         uid: String,
         name: String,
-        kind: AudioInputDeviceKind
+        kind: AudioInputDeviceKind,
+        bluetoothKind: BluetoothAudioDeviceKind? = nil
     ) -> AudioInputDevice {
         AudioInputDevice(
             id: id,
             uid: uid,
             name: name,
             transportType: kAudioDeviceTransportTypeUnknown,
-            kind: kind
+            kind: kind,
+            bluetoothKind: bluetoothKind
         )
     }
 

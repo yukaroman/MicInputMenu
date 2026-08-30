@@ -1,5 +1,120 @@
 import CoreAudio
 import Foundation
+import IOBluetooth
+
+enum BluetoothAudioDeviceKind: String {
+    case airPods
+    case headset
+    case headphones
+    case microphone
+    case speaker
+    case carAudio
+    case other
+
+    var symbolName: String {
+        switch self {
+        case .airPods: return "airpodspro"
+        case .headset, .headphones: return "headphones"
+        case .microphone: return "mic.fill"
+        case .speaker: return "hifispeaker.fill"
+        case .carAudio: return "car.fill"
+        case .other: return "wave.3.right"
+        }
+    }
+
+    static func classify(
+        name: String,
+        majorClass: UInt32,
+        minorClass: UInt32
+    ) -> BluetoothAudioDeviceKind {
+        if name.localizedCaseInsensitiveContains("AirPods") {
+            return .airPods
+        }
+
+        guard majorClass == UInt32(kBluetoothDeviceClassMajorAudio) else {
+            return .other
+        }
+
+        switch minorClass {
+        case UInt32(kBluetoothDeviceClassMinorAudioHeadset),
+             UInt32(kBluetoothDeviceClassMinorAudioHandsFree):
+            return .headset
+        case UInt32(kBluetoothDeviceClassMinorAudioHeadphones):
+            return .headphones
+        case UInt32(kBluetoothDeviceClassMinorAudioMicrophone):
+            return .microphone
+        case UInt32(kBluetoothDeviceClassMinorAudioLoudspeaker),
+             UInt32(kBluetoothDeviceClassMinorAudioPortable),
+             UInt32(kBluetoothDeviceClassMinorAudioHiFi),
+             UInt32(kBluetoothDeviceClassMinorAudioVideoDisplayAndLoudspeaker):
+            return .speaker
+        case UInt32(kBluetoothDeviceClassMinorAudioCar):
+            return .carAudio
+        default:
+            return .other
+        }
+    }
+}
+
+private struct BluetoothDeviceMetadata {
+    let name: String
+    let majorClass: UInt32
+    let minorClass: UInt32
+}
+
+struct BluetoothAudioDeviceResolver {
+    private let devicesByAddress: [String: BluetoothDeviceMetadata]
+
+    init() {
+        var devicesByAddress: [String: BluetoothDeviceMetadata] = [:]
+        for case let device as IOBluetoothDevice in (IOBluetoothDevice.pairedDevices() ?? []) {
+            guard let address = device.addressString,
+                  let addressKey = Self.addressKey(from: address) else {
+                continue
+            }
+            devicesByAddress[addressKey] = BluetoothDeviceMetadata(
+                name: device.name ?? device.nameOrAddress ?? address,
+                majorClass: UInt32(device.deviceClassMajor),
+                minorClass: UInt32(device.deviceClassMinor)
+            )
+        }
+        self.devicesByAddress = devicesByAddress
+    }
+
+    func kind(uid: String, fallbackName: String) -> BluetoothAudioDeviceKind {
+        guard let addressKey = Self.addressKey(from: uid),
+              let metadata = devicesByAddress[addressKey] else {
+            return fallbackName.localizedCaseInsensitiveContains("AirPods")
+                ? .airPods
+                : .other
+        }
+
+        return .classify(
+            name: metadata.name,
+            majorClass: metadata.majorClass,
+            minorClass: metadata.minorClass
+        )
+    }
+
+    static func addressKey(from value: String) -> String? {
+        let hexDigits = CharacterSet(charactersIn: "0123456789abcdefABCDEF")
+        var result = ""
+
+        for scalar in value.unicodeScalars {
+            if hexDigits.contains(scalar) {
+                result.append(Character(String(scalar).lowercased()))
+                if result.count == 12 {
+                    return result
+                }
+            } else if scalar == ":" || scalar == "-" {
+                continue
+            } else {
+                break
+            }
+        }
+        return nil
+    }
+}
 
 enum AudioInputDeviceKind: String {
     case builtIn
@@ -14,7 +129,7 @@ enum AudioInputDeviceKind: String {
     var symbolName: String {
         switch self {
         case .builtIn: return "macbook"
-        case .bluetooth: return "airpodspro"
+        case .bluetooth: return "wave.3.right"
         case .usb: return "cable.connector"
         case .phone: return "iphone"
         case .wireless: return "wifi"
@@ -33,7 +148,7 @@ enum AudioInputDeviceKind: String {
         case .builtIn, .other:
             return "mic.fill"
         case .bluetooth:
-            return "airpodspro"
+            return "wave.3.right"
         case .usb:
             return "cable.connector"
         case .phone:
@@ -76,6 +191,15 @@ struct AudioInputDevice: Equatable {
     let name: String
     let transportType: UInt32
     let kind: AudioInputDeviceKind
+    let bluetoothKind: BluetoothAudioDeviceKind?
+
+    var symbolName: String {
+        bluetoothKind?.symbolName ?? kind.symbolName
+    }
+
+    func statusSymbolName(isMuted: Bool) -> String {
+        isMuted ? "mic.slash.fill" : symbolName
+    }
 }
 
 struct AudioInputControlState {
@@ -152,6 +276,7 @@ final class CoreAudioInputService {
             )
         }
 
+        var bluetoothResolver: BluetoothAudioDeviceResolver?
         return deviceIDs
             .filter { inputChannelCount(deviceID: $0) > 0 }
             .compactMap { deviceID in
@@ -173,12 +298,26 @@ final class CoreAudioInputService {
                     element: kAudioObjectPropertyElementMain
                 ) ?? kAudioDeviceTransportTypeUnknown
 
+                let kind = AudioInputDeviceKind.classify(transportType: transportType)
+                let bluetoothKind: BluetoothAudioDeviceKind?
+                if kind == .bluetooth {
+                    if bluetoothResolver == nil {
+                        bluetoothResolver = BluetoothAudioDeviceResolver()
+                    }
+                    bluetoothKind = bluetoothResolver?.kind(
+                        uid: uid,
+                        fallbackName: name
+                    )
+                } else {
+                    bluetoothKind = nil
+                }
                 return AudioInputDevice(
                     id: deviceID,
                     uid: uid,
                     name: name,
                     transportType: transportType,
-                    kind: .classify(transportType: transportType)
+                    kind: kind,
+                    bluetoothKind: bluetoothKind
                 )
             }
             .sorted {

@@ -31,7 +31,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private var currentDefaultID: AudioDeviceID?
     private var lastKnownDefaultUID: String?
     private var statusDeviceName = L10n.noInput
-    private var statusDeviceKind: AudioInputDeviceKind?
+    private var statusDeviceSymbolName: String?
     private var statusIsMuted: Bool?
     private var statusReadError: String?
     private var hasInitialSnapshot = false
@@ -379,7 +379,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
                 item.target = self
                 item.representedObject = NSNumber(value: device.id)
                 item.state = device.id == defaultID ? .on : .off
-                item.image = menuImage(symbol: device.kind.symbolName)
+                item.image = menuImage(symbol: device.symbolName)
                 menu.addItem(item)
             }
         }
@@ -393,7 +393,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         addPreferencesMenu()
         addUtilityItems()
         statusDeviceName = currentName
-        statusDeviceKind = currentDevice?.kind
+        statusDeviceSymbolName = currentDevice?.statusSymbolName(
+            isMuted: controlState?.isMuted == true
+        )
         statusIsMuted = controlState?.isMuted
         statusReadError = nil
         updateStatusItemFromSnapshot()
@@ -466,7 +468,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             )
             item.target = self
             item.representedObject = device.uid
-            item.image = menuImage(symbol: device.kind.symbolName)
+            item.image = menuImage(symbol: device.symbolName)
             item.state = preferences.fallbackMode == .specific
                 && preferences.fallbackDeviceUID == device.uid ? .on : .off
             submenu.addItem(item)
@@ -609,7 +611,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         addPreferencesMenu()
         addUtilityItems()
         statusDeviceName = L10n.noInput
-        statusDeviceKind = nil
+        statusDeviceSymbolName = nil
         statusIsMuted = nil
         statusReadError = error.localizedDescription
         updateStatusItemFromSnapshot()
@@ -626,8 +628,8 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         if let errorMessage {
             symbol = "exclamationmark.triangle.fill"
             accessibilityDescription = errorMessage
-        } else if let statusDeviceKind {
-            symbol = statusDeviceKind.statusSymbolName(isMuted: isMuted)
+        } else if let statusDeviceSymbolName {
+            symbol = statusDeviceSymbolName
             accessibilityDescription = isMuted
                 ? "\(L10n.currentInput): \(statusDeviceName), \(L10n.muted)"
                 : "\(L10n.currentInput): \(statusDeviceName)"

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.1
+
+- Distinguish Bluetooth speakers, headphones, headsets, microphones, car
+  audio, AirPods, and unknown devices using the Bluetooth device class.
+- Show a speaker icon for Bluetooth loudspeakers such as Marshall WILLEN
+  instead of treating every Bluetooth input as AirPods.
+- Add the required macOS Bluetooth usage description and document that the
+  permission is used only for local icon classification.
+
 ## 2.1.0
 
 - Add device-aware and mute-aware menu bar icons.

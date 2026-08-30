@@ -14,7 +14,8 @@ default audio input device. The interface supports English and Chinese.
 - Persistent, device-aware menu bar icon with an optional device name
 - Muted-state icon that updates when another app or macOS changes input mute
 - One-click switching between built-in, USB, Bluetooth, iPhone, wireless,
-  aggregate, and virtual input devices
+  aggregate, and virtual input devices, with distinct Bluetooth speaker,
+  headphones, headset, microphone, car-audio, and AirPods icons
 - Input volume and mute controls when supported by the selected device
 - Live Core Audio updates for volume, mute, device name, availability, data
   source, and input-channel changes
@@ -26,9 +27,11 @@ default audio input device. The interface supports English and Chinese.
 
 ## Privacy
 
-Mic Input Menu reads and controls Core Audio properties only. It does not
-record audio, request microphone access, collect analytics, or make network
-requests. See [PRIVACY.md](PRIVACY.md) for details.
+Mic Input Menu reads and controls Core Audio properties. When a Bluetooth input
+is present, macOS may ask for Bluetooth access so the app can identify its
+device type and choose the correct icon. It does not record audio, request
+microphone access, collect analytics, or make network requests. See
+[PRIVACY.md](PRIVACY.md) for details.
 
 ## Install
 

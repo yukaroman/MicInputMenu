@@ -8,6 +8,7 @@ enum FallbackMode: String {
 
 final class AppPreferences {
     private enum Key {
+        static let legacyMigrationCompleted = "legacyMigrationCompleted"
         static let showsDeviceName = "showsDeviceName"
         static let notificationsEnabled = "notificationsEnabled"
         static let globalHotKeyEnabled = "globalHotKeyEnabled"
@@ -20,12 +21,41 @@ final class AppPreferences {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        if defaults === UserDefaults.standard {
+            migrateLegacyPreferencesIfNeeded()
+        }
         defaults.register(defaults: [
             Key.showsDeviceName: false,
             Key.notificationsEnabled: false,
             Key.globalHotKeyEnabled: true,
             Key.fallbackMode: FallbackMode.automatic.rawValue
         ])
+    }
+
+    private func migrateLegacyPreferencesIfNeeded() {
+        guard Bundle.main.bundleIdentifier == "io.github.yukaroman.MicInputMenu",
+              defaults.object(forKey: Key.legacyMigrationCompleted) == nil else {
+            return
+        }
+
+        let legacyDomain = defaults.persistentDomain(
+            forName: "local.codex.MicInputMenu"
+        ) ?? [:]
+        let migratableKeys = [
+            Key.showsDeviceName,
+            Key.globalHotKeyEnabled,
+            Key.fallbackMode,
+            Key.fallbackDeviceUID,
+            Key.fallbackDeviceName,
+            "NSStatusItem Preferred Position Item-0"
+        ]
+
+        for key in migratableKeys where defaults.object(forKey: key) == nil {
+            if let value = legacyDomain[key] {
+                defaults.set(value, forKey: key)
+            }
+        }
+        defaults.set(true, forKey: Key.legacyMigrationCompleted)
     }
 
     var showsDeviceName: Bool {
