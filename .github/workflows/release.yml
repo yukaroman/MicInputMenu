@@ -137,7 +137,7 @@ jobs:
           print "RELEASE_ASSET=${release_asset}" >> "${GITHUB_ENV}"
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: MicInputMenu-release
           path: |
